@@ -9,6 +9,12 @@
 # the other VLANs. Multiple interfaces are to be separated by spaces.
 exclude="br20"
 
+# Add rule to allow established and related network traffic coming in to LAN interface
+allow_related_lan=true
+
+# Add rule to allow established and related network traffic coming in to guest interface
+allow_related_guest=true
+
 #
 ##############################################################################################
 
@@ -44,6 +50,15 @@ lan_if_count=$(echo $lan_if | wc -w)
 # prepare ip(6)tables chains lan_separation
 iptables -N lan_separation &> /dev/null && logger "$me: IPv4 chain created (lan_separation)"
 ip6tables -N lan_separation &> /dev/null && logger "$me: IPv6 chain created (lan_separation)"
+
+# add allow related/established to UBIOS_LAN_IN_USER if requested
+if [ $allow_related_lan == "true" ]; then
+    rule="-A UBIOS_LAN_IN_USER -m conntrack --ctstate RELATED,ESTABLISHED.*-j RETURN"
+    iptables --list-rules | grep -e "$rule" &> /dev/null ||
+        iptables -I UBIOS_LAN_IN_USER 1 -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+    ip6tables --list-rules | grep -e "$rule" &> /dev/null ||
+        ip6tables -I UBIOS_LAN_IN_USER 1 -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+fi
 
 # LAN separation only necessary if at least 2 LANs are configured
 if [ $lan_if_count -gt 1 ]; then
@@ -114,6 +129,15 @@ fi
 # Get list of relevant guest interfaces and total number of interfaces
 guest_if=$(iptables --list-rules UBIOS_FORWARD_IN_USER | awk '/-j UBIOS_GUEST_IN_USER/ { print $4 }')
 guest_if_count=$(echo $guest_if | wc -w)
+
+# add allow related/established to UBIOS_LAN_IN_USER if requested
+if [ $allow_related_guest == "true" ]; then
+    rule="-A UBIOS_GUEST_IN_USER -m conntrack --ctstate RELATED,ESTABLISHED.*-j RETURN"
+    iptables --list-rules | grep -e "$rule" &> /dev/null ||
+        iptables -I UBIOS_GUEST_IN_USER 1 -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+    ip6tables --list-rules | grep -e "$rule" &> /dev/null ||
+        ip6tables -I UBIOS_GUEST_IN_USER 1 -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+fi
 
 # LAN separation only necessary if at least 2 LANs are configured
 if [ $guest_if_count -gt 1 ]; then
