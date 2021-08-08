@@ -1,6 +1,6 @@
 # UDM / UDM Pro VLAN Trennung
 
-Werden auf der UDM/UDM PRo unterschiedliche VLANs verwendet, so kann innerhalb der Sicherheitszonen LAN und Guest zwischen den jeweiligen VLANs ungefiltert kommuniziert werden, da das Firewallregelwerk per Default keine strikte Trennung umsetzt (siehe auch https://nerdig.es/udm-pro-netzwerktrennung-1/). Damit zwischen den 
+Werden auf der UDM/UDM Pro unterschiedliche VLANs verwendet, so kann innerhalb der Sicherheitszonen LAN und Guest zwischen den jeweiligen VLANs ungefiltert kommuniziert werden, da das Firewallregelwerk per Default keine strikte Trennung umsetzt (siehe auch https://nerdig.es/udm-pro-netzwerktrennung-1/). Damit zwischen den 
 
 ## Funktionsweise
 Das Script `21-separate-vlans.sh` wird per [UDM / UDMPro Boot Script](https://github.com/boostchicken/udm-utilities/tree/master/on-boot-script) von [boostchicken](https://github.com/boostchicken) beim Systemstart ausgeführt. Da die vom Script erzeugten Firewall regeln bei Änderungen an der Firewall-Konfiguration gelöscht werden, wird beim initialen Ausführen des Scripts ein Cron-Job angelegt, der das Script alle 2 Minuten ausführt um sicherzustellen, dass die REgeln dauerhaft implementiert sind. 
