@@ -38,6 +38,16 @@ if [ ${uptimeMinutes::-3} -lt 300 ]
                 logger "$me: Script startet via Cron-Job."
 fi
 
+# As ruleset is reset, when changes were made via GUI it can be assumed that script
+# can be stopped when chains lan_separation and guest_separation are referenced correctly
+# If one reference is missing, then full rules have to be reset.
+if ( iptables --list-rules | grep -e "-A UBIOS_LAN_IN_USER -j lan_separation" &&
+     ip6tables --list-rules | grep -e "-A UBIOS_LAN_IN_USER -j lan_separation" &&
+     iptables --list-rules | grep -e "-A UBIOS_LAN_IN_USER -j lan_separation" &&
+     ip6tables --list-rules | grep -e "-A UBIOS_LAN_IN_USER -j lan_separation" ); then
+    logger "$me: Found JUMP rules to custom chains. Nothing to do."
+    exit
+fi
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # LAN separation
@@ -48,8 +58,16 @@ lan_if=$(iptables --list-rules UBIOS_FORWARD_IN_USER | awk '/-j UBIOS_LAN_IN_USE
 lan_if_count=$(echo $lan_if | wc -w)
 
 # prepare ip(6)tables chains lan_separation
-iptables -N lan_separation &> /dev/null && logger "$me: IPv4 chain created (lan_separation)"
-ip6tables -N lan_separation &> /dev/null && logger "$me: IPv6 chain created (lan_separation)"
+if iptables -N lan_separation &> /dev/null; then
+    logger "$me: IPv4 chain created (lan_separation)"
+else
+    iptables -F lan_separation && logger "$me: Existing IPv4 chain lan_separation flushed."
+fi
+if ip6tables -N lan_separation &> /dev/null; then
+    logger "$me: IPv6 chain created (lan_separation)"
+else
+    ip6tables -F lan_separation && logger "$me: Existing IPv6 chain lan_separation flushed."
+fi
 
 # add allow related/established to UBIOS_LAN_IN_USER if requested
 if [ $allow_related_lan == "true" ]; then
@@ -63,7 +81,7 @@ fi
 # LAN separation only necessary if at least 2 LANs are configured
 if [ $lan_if_count -gt 1 ]; then
 
-    # Add missing rules to chain lan_separation
+    # Add rules to separate LAN-VLANs to chain lan_separation
     for i in $lan_if; do
         case "$exclude " in
             *"$i "*)
@@ -82,18 +100,6 @@ if [ $lan_if_count -gt 1 ]; then
         esac
     done
 
-    # Remove all rules that block traffic originating from excluded interfaces
-    # (should only be necessary if $exclude is changed)
-    rules=$(iptables -L lan_separation -v --line-number | grep -E "^[0-9]+" | sort -r)
-    for e in $exclude; do
-        for r in $rules; do
-            rnum=$(echo $r | grep -e "-- *$e " | awk '{ print $1 }')
-            if [ $rnum ]; then
-                iptables -D lan_separation $rnum && logger "$me: Removing rule $rnum from VLAN separation ($r)."
-            fi
-        done
-    done
-
     # add IPv4 rule to include rules in chain lan_separation
     if ! iptables --list-rules | grep -e "-A UBIOS_LAN_IN_USER -j lan_separation" &> /dev/null; then
         rules=$(iptables -L UBIOS_LAN_IN_USER --line-numbers | awk 'END { print $1 }')
@@ -108,17 +114,7 @@ if [ $lan_if_count -gt 1 ]; then
         ip6tables -I UBIOS_LAN_IN_USER $v6_idx -j lan_separation
     fi
 else
-    logger "$me: Just one LAN interface detected. No filters implemented. Starting clean up..."
-
-    iptables -D UBIOS_LAN_IN_USER -j lan_separation && logger "$me: IPv4 firewall rule to include chain lan_separation deleted."
-    iptables -F lan_separation && logger "$me: Existing IPv4 chain lan_separation flushed."
-    # do not delete chain, as it is used to implement lan > guest separation
-    #iptables -X lan_separation && logger "$me: Existing IPv4 chain lan_separation deleted."
-
-    ip6tables -D UBIOS_LAN_IN_USER -j lan_separation && logger "$me: IPv6 firewall rule to include chain lan_separation deleted."
-    ip6tables -F lan_separation && logger "$me: Existing IPv6 chain lan_separation flushed."
-    # do not delete chain, as it is used to implement lan > guest separation
-    #ip6tables -X lan_separation && logger "$me: Existing IPv6 chain lan_separation deleted."
+    logger "$me: Just one LAN interface detected. No REJECT-Rules to separate LANs implemented."
 fi
 
 
@@ -139,14 +135,22 @@ if [ $allow_related_guest == "true" ]; then
         ip6tables -I UBIOS_GUEST_IN_USER 1 -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
 fi
 
-# LAN separation only necessary if at least 2 LANs are configured
+# Guest separation only necessary if at least 2 Guest networks are configured
 if [ $guest_if_count -gt 1 ]; then
 
-    # prepare ip(6)tables chains
-    iptables -N guest_separation &> /dev/null && logger "$me: IPv4 chain created (guest_separation)"
-    ip6tables -N guest_separation &> /dev/null && logger "$me: IPv6 chain created (guest_separation)"
+    # prepare ip(6)tables chains guest_separation
+    if iptables -N guest_separation &> /dev/null; then
+        logger "$me: IPv4 chain created (guest_separation)"
+    else
+        iptables -F guest_separation && logger "$me: Existing IPv4 chain guest_separation flushed."
+    fi
+    if ip6tables -N guest_separation &> /dev/null; then
+        logger "$me: IPv6 chain created (guest_separation)"
+    else
+        ip6tables -F guest_separation && logger "$me: Existing IPv6 chain guest_separation flushed."
+    fi
 
-    # Add missing rules to chain guest_separation
+    # Add rules to chain guest_separation
     for i in $guest_if; do
         case "$exclude " in
             *"$i "*)
@@ -165,18 +169,6 @@ if [ $guest_if_count -gt 1 ]; then
         esac
     done
 
-    # Remove all rules that block traffic originating from excluded interfaces
-    # (should only be necessary if $exclude is changed)
-    rules=$(iptables -L guest_separation -v --line-number | grep -E "^[0-9]+" | sort -r)
-    for e in $exclude; do
-        for r in $rules; do
-            rnum=$(echo $r | grep -e "-- *$e " | awk '{ print $1 }')
-            if [ $rnum ]; then
-                iptables -D guest_separation $rnum && logger "$me: Removing rule $rnum from VLAN separation ($r)."
-            fi
-        done
-    done
-
     if ! iptables --list-rules | grep -e "-A UBIOS_GUEST_IN_USER -j guest_separation" &> /dev/null ; then
         # add IPv4 rule to include rules in chain guest_separation
         rules=$(iptables -L UBIOS_GUEST_IN_USER --line-numbers | awk 'END { print $1 }')
@@ -193,11 +185,9 @@ if [ $guest_if_count -gt 1 ]; then
 else
     logger "$me: Just one guest interface detected. No filters implemented. Starting clean up..."
 
-    iptables -D UBIOS_GUEST_IN_USER -j guest_separation && logger "$me: IPv4 firewall rule to include chain guest_separation deleted."
     iptables -F guest_separation && logger "$me: Existing IPv4 chain guest_separation flushed."
     iptables -X guest_separation && logger "$me: Existing IPv4 chain guest_separation deleted."
 
-    ip6tables -D UBIOS_GUEST_IN_USER -j guest_separation && logger "$me: IPv6 firewall rule to include chain guest_separation deleted."
     ip6tables -F guest_separation && logger "$me: Existing IPv6 chain guest_separation flushed."
     ip6tables -X guest_separation && logger "$me: Existing IPv6 chain guest_separation deleted."
 fi
