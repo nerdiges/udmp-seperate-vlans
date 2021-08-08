@@ -194,7 +194,7 @@ if ls /etc/cron.d/separate-vlans > /dev/null 2>&1
         then
                 logger "$me: Cron job exists"
         else
-                echo "*/2 * * * * /mnt/data/on_boot.d/21-separate_vlans.sh" > /etc/cron.d/separate-vlans
+                echo "*/2 * * * * /mnt/data/on_boot.d/21-separate-vlans.sh" > /etc/cron.d/separate-vlans
                 logger "$me: Cron job created"
                 /etc/init.d/crond restart
 fi
